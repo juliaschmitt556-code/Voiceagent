@@ -1,0 +1,263 @@
+Build a Production-Ready, Local-First AI Voice Call Platform
+
+Project objective
+
+Inspect and upgrade the existing Python Flask AI Call Control Server into a working, real-time conversational voice platform using locally hosted, open-source AI models.
+
+Primary requirement: No paid AI APIs and no mandatory AI-provider API keys.
+
+The core voice conversation must run using:
+
+* STT: whisper.cpp — local speech recognition.
+* LLM: Ollama with a locally downloaded language model.
+* TTS: Piper — local speech synthesis.
+* Voice framework: LiveKit Agents for Python where compatible with the selected local adapters.
+* Backend: Flask, SQLAlchemy, Alembic, and PostgreSQL in production.
+* Browser audio: WebRTC for real-time microphone and speaker communication.
+* Telephony: LiveKit SIP, with external SIP credentials only when telephone calling is enabled.
+
+Do not require OpenAI, ElevenLabs, Fish Audio, or another paid hosted AI provider. Do not use LiveKit-hosted inference as a mandatory dependency.
+
+1. Local AI architecture
+
+Implement this pipeline:
+
+Microphone or telephone audio → whisper.cpp → Ollama → Piper → caller audio.
+
+All core AI inference must run on the user’s own computer or server.
+
+Speech-to-text
+
+Integrate whisper.cpp from:
+
+https://github.com/ggml-org/whisper.cpp
+
+Requirements:
+
+* Run Whisper locally through a supported executable, server interface, or maintained wrapper.
+* Download and configure the selected Whisper model.
+* Capture incoming audio continuously.
+* Process bounded audio windows and use incremental transcription where practical.
+* Publish provisional and final transcript updates.
+* Add voice activity detection, endpointing, punctuation normalization, and duplicate-final prevention.
+* Configure language, model size, CPU/GPU usage, and recognition parameters.
+* Support timeouts, process monitoring, restart recovery, and graceful shutdown.
+* Never claim that Whisper itself provides native token-by-token streaming if the selected interface does not.
+
+Use a maintained local VAD implementation, such as Silero VAD, where appropriate. Do not invent interfaces or unsupported capabilities.
+
+Local language model
+
+Integrate Ollama:
+
+https://github.com/ollama/ollama
+
+Requirements:
+
+* Configure OLLAMA_BASE_URL, OLLAMA_MODEL, and connection timeouts.
+* Stream generated text incrementally using Ollama’s supported streaming interface.
+* Download the selected model during setup or provide clear setup instructions.
+* Maintain separate conversation histories for every call and browser session.
+* Support a configurable system prompt, context limits, cancellation, and concise spoken responses.
+* Detect Ollama disconnections, model-loading failures, and resource exhaustion.
+* Never use a remote model fallback that silently introduces paid API usage.
+
+The user must be able to select an installed model through configuration. Do not hardcode an assumed model as universally suitable for every computer.
+
+Local text-to-speech
+
+Integrate Piper:
+
+https://github.com/OHF-Voice/piper1-gpl
+
+Requirements:
+
+* Run speech synthesis locally.
+* Download the selected compatible voice model.
+* Configure voice, language, speaking rate, and output audio format where supported.
+* Split text into natural phrases instead of sending tiny individual tokens.
+* Start playback as early as the implementation permits.
+* Support cancellation, interruption, ordered audio output, and cleanup.
+* Convert audio into the format required by the browser or LiveKit audio pipeline.
+* Clearly document whether synthesis is chunked, streamed, or generated per phrase.
+
+Do not introduce ElevenLabs or Fish Audio as required services.
+
+2. Low-latency conversation pipeline
+
+Implement asynchronous, bounded processing for:
+
+1. Incoming audio capture.
+2. Voice activity detection.
+3. Whisper transcription.
+4. Final turn detection.
+5. Streaming Ollama generation.
+6. Phrase-based Piper synthesis.
+7. Audio playback.
+8. Live transcript and status events.
+
+Use cancellation tokens, bounded queues, timeouts, backpressure, and per-session task management.
+
+The system must stop obsolete generation and speech when the caller interrupts, the owner takes over, or the call ends.
+
+Measure the actual latency of each stage. Do not promise fixed response times without testing the selected hardware and models.
+
+3. LiveKit Agents integration
+
+Use LiveKit Agents for session and audio management where supported by the installed version.
+
+Create custom adapters for whisper.cpp, Ollama, and Piper if official plugins do not directly support the chosen local interfaces.
+
+Do not assume inference.STT, inference.LLM, or inference.TTS can run these local services automatically. Verify current SDK interfaces and implement the documented adapter interfaces.
+
+Keep the Flask control API and the voice agent worker as separate processes.
+
+4. Browser voice and chat
+
+Preserve these routes:
+
+* / — call and control dashboard.
+* /voice — local AI voice preview.
+* /chat — text chat with optional spoken replies.
+
+Implement a mobile-first responsive interface with:
+
+* Microphone permissions and connection status.
+* Live provisional and final transcripts.
+* AI response playback.
+* Start, stop, mute, and interruption controls.
+* Owner takeover and resume.
+* Typed-message composer.
+* Conversation history.
+* Error, loading, and reconnection states.
+
+Browser voice sessions must use the local AI pipeline without calling a telephone number. The frontend must never receive server secrets.
+
+5. Telephone calling
+
+Preserve LiveKit SIP integration, including outbound calls when configured.
+
+Use environment variables for optional telephony configuration:
+
+LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_SIP_TRUNK_ID, and AGENT_NAME.
+
+Important: these are infrastructure credentials, not AI inference API keys. A real outbound phone call requires a configured SIP trunk or telephony provider and may incur charges.
+
+When telephony is not configured, browser voice and local chat must still work.
+
+Before placing a call, validate the destination, confirm current affirmative consent, create the call record, dispatch the agent, and place the call using verified SDK methods.
+
+Do not assume that successful agent dispatch means the call was answered.
+
+6. Consent and AI disclosure
+
+Preserve and strengthen existing consent controls.
+
+* Require valid affirmative consent before outbound calls.
+* Normalize telephone numbers consistently.
+* Recheck consent immediately before call placement and retries.
+* Support consent withdrawal.
+* Never treat missing or ambiguous consent as permission.
+* Prevent background workers and internal endpoints from bypassing consent.
+
+The first audible content of every outbound call must be this exact disclosure:
+
+“Hi, this is an AI assistant speaking on behalf of the account owner. They are typing and can join the call at any time.”
+
+Ensure the disclosure finishes before other conversational speech or queued messages begin. Track its playback status and support opt-out and call termination.
+
+7. Owner takeover and typed-message queue
+
+Preserve existing takeover, mute, resume, and typed-message functionality.
+
+When takeover occurs:
+
+* Immediately stop AI output.
+* Cancel active LLM and TTS tasks.
+* Clear pending AI speech and stale messages.
+* Prevent additional AI output until authorized resume.
+* Publish the new state to the control panel.
+
+Implement a durable, ordered message queue with unique IDs and states: queued, processing, spoken, cancelled, and failed.
+
+Do not mark a message spoken merely because it was fetched. Record its actual delivery outcome and prevent duplicate playback.
+
+8. API, database, and security
+
+Preserve existing API routes where practical, including:
+
+* /api/chat
+* /api/voice/status
+* /api/speak
+* /api/disclosure
+* /api/consent
+* /api/calls
+* /api/calls/<call_id>
+* /api/calls/<call_id>/state
+* /api/calls/<call_id>/transcript
+* /api/calls/<call_id>/takeover
+* /api/calls/<call_id>/messages
+
+Use SQLAlchemy and Alembic. Support SQLite for local development and PostgreSQL for production.
+
+Implement authentication, role-based permissions, request validation, rate limits, secure WebSocket authentication, strict CORS, HTTPS/WSS deployment guidance, secret redaction, retention policies, and safe shutdown.
+
+Never expose infrastructure credentials in frontend code.
+
+9. Deployment and environment
+
+Provide:
+
+* .env.example with placeholders only.
+* Pinned Python dependencies.
+* Dockerfile and Docker Compose configuration.
+* Flask API and agent-worker services.
+* Local Ollama service configuration.
+* Whisper model download and setup instructions.
+* Piper voice download and setup instructions.
+* PostgreSQL and migration configuration.
+* Health and readiness endpoints.
+* CPU and GPU deployment guidance.
+* Troubleshooting and production deployment documentation.
+
+Do not assume Docker has enough memory or GPU access for the selected models. Document resource requirements and provide a non-Docker local development option.
+
+No paid AI provider key should be required to run the core browser-based voice assistant.
+
+10. Testing and acceptance
+
+Implement automated tests for:
+
+1. Local Whisper transcription.
+2. Partial and final transcript handling.
+3. Ollama streaming and cancellation.
+4. Piper speech generation and playback.
+5. Browser voice without paid AI API keys.
+6. Session isolation between simultaneous users.
+7. Interruption and owner takeover.
+8. Consent enforcement and withdrawal.
+9. Disclosure as the first audible content.
+10. Ordered typed-message delivery.
+11. Provider process failure and recovery.
+12. WebSocket authorization.
+13. Call lifecycle and SIP errors.
+14. Clean shutdown and persistence.
+
+Use mocked infrastructure for automated tests, but separately document which tests require real audio hardware or a configured SIP trunk.
+
+11. Definition of done
+
+Inspect the existing repository before editing. Preserve working functionality and implement the actual integrations rather than a static prototype.
+
+Deliver the working Flask API, local AI adapters, voice worker, responsive frontend, database migrations, tests, and setup documentation.
+
+Clearly report:
+
+* What is implemented.
+* What has passed automated tests.
+* What has been verified with real audio.
+* What still requires external telephony configuration.
+* The hardware and storage requirements for the selected local models.
+* Any feature that is not truly streaming.
+
+Final requirement: The local browser-based voice assistant must run without paid AI API keys. Telephone calling must remain optional and clearly identify any external infrastructure credentials or costs.
